@@ -1,53 +1,32 @@
-# Render Blueprint. Connect the repo, fill the prompted secrets, and deploy.
-# The disk keeps the SQLite file. Use one instance; a disk cannot be shared.
+# Render Blueprint for the free web service plan.
+# Free instances have no persistent disk. SQLite lives at ./data/sable.db and
+# is wiped on every redeploy, restart, and spin-down. See the README.
 services:
   - type: web
     name: sable
-    runtime: docker
-    plan: starter
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     healthCheckPath: /health
-    disk:
-      name: sable-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
-      - key: DATABASE_PATH
-        value: /data/sable.db
+      - key: NODE_VERSION
+        value: "22"
       - key: CHANNEL
         value: web
+      - key: DATABASE_PATH
+        value: ./data/sable.db
       - key: ASSISTANT_NAME
         value: Sable
       - key: OWNER_NAME
         value: Omar
       - key: OWNER_TIMEZONE
         value: America/Los_Angeles
-      - key: LLM_MODE
-        value: openai
-      - key: LLM_BASE_URL
-        value: https://api.openai.com/v1
       - key: LLM_MODEL
         value: gpt-4o-mini
-      - key: META_API_VERSION
-        value: v21.0
       - key: APP_PASSWORD
-        sync: false
-      - key: OWNER_PHONE_NUMBERS
         sync: false
       - key: LLM_API_KEY
         sync: false
-      - key: META_VERIFY_TOKEN
-        sync: false
-      - key: META_ACCESS_TOKEN
-        sync: false
-      - key: META_PHONE_NUMBER_ID
-        sync: false
-      - key: META_APP_SECRET
-        sync: false
       - key: PUBLIC_BASE_URL
-        sync: false
-      - key: SEARCH_PROVIDER
-        value: none
-      - key: TAVILY_API_KEY
-        sync: false
-      - key: BRAVE_API_KEY
         sync: false

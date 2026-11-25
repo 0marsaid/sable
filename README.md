@@ -41,20 +41,9 @@ There is no sign-up. A wrong password is hashed and compared without storing the
 
 Use one instance and a persistent disk at `/data`. Sleeping free tiers will miss reminders.
 
-**Render.** **New → Blueprint** and select this repo, or create a web service from the Dockerfile. Set:
+**Render free plan.** In the dashboard, **New → Blueprint** and point it at the GitHub repo. `render.yaml` is a free web service: Node 22, `npm install && npm run build`, `npm start`, and a health check at `/health`. It asks for `APP_PASSWORD` and does not attach a disk. The database file is `./data/sable.db`. Render's free plan has no persistent disk, so notes, memory, and reminders are wiped on every redeploy, restart, and spin-down. A free instance also sleeps after 15 minutes without traffic, and a sleeping process cannot send a reminder until the next request wakes it.
 
-```bash
-APP_PASSWORD=choose-a-long-password
-DATABASE_PATH=/data/sable.db
-OWNER_NAME=Omar
-OWNER_TIMEZONE=America/Los_Angeles
-```
-
-Add `LLM_API_KEY` only if you want the hosted model. The site works with the password alone.
-
-Attach a disk mounted at `/data`. The health check is `/health`. Open the Render URL and sign in.
-
-**Railway.** **New project → Deploy from GitHub.** Add a volume mounted at `/data`. Set the same variables, including `DATABASE_PATH=/data/sable.db`. Generate a domain and open it.
+**Railway.** **New project → Deploy from GitHub.** Add a volume mounted at `/data` if you want the chat to survive deploys. Set `DATABASE_PATH=/data/sable.db` when that volume exists. Generate a domain and open it.
 
 WhatsApp keys are not required for either host.
 
@@ -300,15 +289,15 @@ If `SEARCH_PROVIDER` is left as `none` and a key is present, Sable picks the pro
 
 ## Deploy
 
-Sable has to stay running. Reminders are sent by this process, and the SQLite database is a file. Use one instance and a persistent disk. An ephemeral filesystem will forget Omar’s notes on every deploy.
+Sable has to stay running to send reminders. The SQLite database is a file. On a paid host you can keep it with a persistent disk. Render's free plan cannot.
 
-The container listens on `PORT` (Render and Railway set this) and writes the database to `DATABASE_PATH`. In the included configs that path is `/data/sable.db`.
+The process listens on `PORT` (Render and Railway set this) and writes the database to `DATABASE_PATH`. The default is `./data/sable.db`, a file on the local disk.
 
-Set `PUBLIC_BASE_URL` to the https origin the host gives you, with no trailing slash, and use `https://that-host/webhook` as the Meta callback.
+### Render free plan
 
-### Render
+`render.yaml` targets Render's free web service. It uses the Node runtime, builds with `npm install && npm run build`, starts with `npm start`, and checks `/health`. The only secret it prompts for is `APP_PASSWORD`. There is no disk: the free plan cannot attach one. SQLite at `./data/sable.db` resets whenever the service redeploys, restarts, or spins down after 15 minutes without traffic. Reminders only send while the process is awake.
 
-`render.yaml` is a Blueprint. In the Render dashboard: **New → Blueprint**, select the repo, and fill the secrets it prompts for (`OWNER_PHONE_NUMBERS`, `LLM_API_KEY`, the Meta values, `PUBLIC_BASE_URL`). The file attaches a 1 GB disk at `/data` and uses the starter plan so the service does not sleep. Free instances sleep, and a sleeping process cannot deliver a reminder.
+In the Render dashboard: **New → Blueprint**, connect the GitHub repository, and set `APP_PASSWORD` when prompted. Add `LLM_API_KEY` only if you want the hosted model.
 
 ### Railway
 
@@ -405,7 +394,7 @@ Calendar, email, bookings, and phone calls belong in this list the same way. The
 | `OWNER_NAME` | Default `Omar`. Used in the prompt. |
 | `OWNER_TIMEZONE` | IANA name, such as `America/Los_Angeles`. |
 | `OWNER_PHONE_NUMBERS` | Comma-separated numbers with country code. Empty means reply to nobody. |
-| `DATABASE_PATH` | SQLite file. Default `./data/sable.db`. |
+| `DATABASE_PATH` | SQLite file. Default `./data/sable.db`. On Render's free plan this file is wiped on every redeploy, restart, and spin-down. |
 | `PUBLIC_BASE_URL` | Public https origin, no trailing slash. |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, or `error`. |
 | `LLM_MODE` | `openai` or `mock`. |
