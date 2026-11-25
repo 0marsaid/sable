@@ -1,0 +1,51 @@
+# Render Blueprint. Connect the repo, fill the prompted secrets, and deploy.
+# The disk keeps the SQLite file. Use one instance; a disk cannot be shared.
+services:
+  - type: web
+    name: sable
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: sable-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_PATH
+        value: /data/sable.db
+      - key: WHATSAPP_PROVIDER
+        value: meta
+      - key: ASSISTANT_NAME
+        value: Sable
+      - key: OWNER_NAME
+        value: Omar
+      - key: OWNER_TIMEZONE
+        value: America/Los_Angeles
+      - key: LLM_MODE
+        value: openai
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: META_API_VERSION
+        value: v21.0
+      - key: OWNER_PHONE_NUMBERS
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: SEARCH_PROVIDER
+        value: none
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: BRAVE_API_KEY
+        sync: false
