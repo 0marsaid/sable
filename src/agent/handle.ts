@@ -10,7 +10,7 @@ import { cancelPending, resolveApproval, runAgent } from './loop.js';
 const NOT_CONFIGURED =
   "I'm up, but no language model is configured yet. Set LLM_API_KEY (and LLM_BASE_URL / LLM_MODEL if you aren't using OpenAI) and restart me.";
 
-async function deliver(runtime: Runtime, to: string, text: string, reminder = false): Promise<void> {
+export async function deliverToUser(runtime: Runtime, to: string, text: string, reminder = false): Promise<void> {
   const parts = splitWhatsAppText(text);
   for (const part of parts) {
     runtime.store.logDelivery(to, part, runtime.now());
@@ -33,7 +33,7 @@ export async function handleInbound(message: InboundMessage, runtime: Runtime): 
   } catch (error) {
     runtime.log.error({ err: errorMessage(error) }, 'failed to handle message');
     try {
-      await deliver(runtime, phone, 'Something went wrong on my side. Please try again.');
+      await deliverToUser(runtime, phone, 'Something went wrong on my side. Please try again.');
     } catch (sendError) {
       runtime.log.error({ err: errorMessage(sendError) }, 'failed to send the error reply');
     }
@@ -64,7 +64,7 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
       now,
       fetchImpl: runtime.fetchImpl,
     });
-    await deliver(runtime, phone, reply);
+    await deliverToUser(runtime, phone, reply);
     return;
   }
   if (livePending) {
@@ -78,7 +78,7 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
   }
 
   if (notice === 'expired' && decision !== 'other') {
-    await deliver(runtime, phone, 'That confirmation expired. Ask me again if you still want it done.');
+    await deliverToUser(runtime, phone, 'That confirmation expired. Ask me again if you still want it done.');
     return;
   }
 
@@ -90,13 +90,13 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
         : notice === 'expired'
           ? '\n\nThe earlier confirmation had already expired.'
           : '';
-    await deliver(runtime, phone, `I can read text and photos, but I can't open ${label} yet.${extra}`);
+    await deliverToUser(runtime, phone, `I can read text and photos, but I can't open ${label} yet.${extra}`);
     return;
   }
 
   if (!runtime.llm.configured) {
     runtime.store.addMessage({ phone, role: 'user', content: text || '[message]', createdAt: now });
-    await deliver(runtime, phone, NOT_CONFIGURED);
+    await deliverToUser(runtime, phone, NOT_CONFIGURED);
     return;
   }
 
@@ -106,7 +106,7 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
   if (message.kind === 'image') {
     image = message.inlineImage ?? (await downloadInboundMedia(message, runtime.config, runtime.fetchImpl));
     if (!image) {
-      await deliver(
+      await deliverToUser(
         runtime,
         phone,
         "I got a photo, but I couldn't download it. Try sending it again, or tell me in text.",
@@ -115,7 +115,7 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
     }
     userText = text ? `[Photo] ${text}` : '[Photo] Please look at this image.';
   } else if (!userText) {
-    await deliver(runtime, phone, "I didn't catch any text. Send me a message or a photo.");
+    await deliverToUser(runtime, phone, "I didn't catch any text. Send me a message or a photo.");
     return;
   }
 
@@ -136,9 +136,9 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
       : notice === 'expired'
         ? 'That earlier confirmation expired.\n\n'
         : '';
-  await deliver(runtime, phone, prefix + result.text);
+  await deliverToUser(runtime, phone, prefix + result.text);
 }
 
 export async function deliverReminder(runtime: Runtime, phone: string, text: string): Promise<void> {
-  await deliver(runtime, phone, text, true);
+  await deliverToUser(runtime, phone, text, true);
 }

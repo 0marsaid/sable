@@ -66,7 +66,7 @@ describe('web login', () => {
     const denied = await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'Hello' }),
+      body: JSON.stringify({ text: 'Hello', engine: 'server' }),
     });
     expect(denied.status).toBe(401);
 
@@ -127,7 +127,7 @@ describe('web chat', () => {
     const sent = await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ text: 'Hello' }),
+      body: JSON.stringify({ text: 'Hello', engine: 'server' }),
     });
     expect(sent.status).toBe(200);
     const body = (await sent.json()) as { items: { role: string; body: string }[] };
@@ -148,6 +148,7 @@ describe('web chat', () => {
       headers: { 'content-type': 'application/json', cookie },
       body: JSON.stringify({
         text: 'What is this?',
+        engine: 'server',
         image: { mimeType: 'image/png', data: Buffer.from('png').toString('base64') },
       }),
     });
@@ -174,7 +175,7 @@ describe('web chat', () => {
     const asked = await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ text: 'Remind me to call the dentist tomorrow at 9' }),
+      body: JSON.stringify({ text: 'Remind me to call the dentist tomorrow at 9', engine: 'server' }),
     });
     const askedBody = (await asked.json()) as { pending: { summaries: string[] } | null };
     expect(askedBody.pending?.summaries.join('\n')).toContain('Call the dentist');
@@ -189,7 +190,7 @@ describe('web chat', () => {
     const approved = await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ text: 'yes' }),
+      body: JSON.stringify({ text: 'yes', engine: 'server' }),
     });
     const approvedBody = (await approved.json()) as { items: { body: string }[]; pending: unknown };
     expect(approvedBody.items.at(-1)?.body).toBe('Reminder set.');
@@ -215,12 +216,12 @@ describe('web chat', () => {
     await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ text: 'Remind me' }),
+      body: JSON.stringify({ text: 'Remind me', engine: 'server' }),
     });
     const declined = await app.request('/api/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', cookie },
-      body: JSON.stringify({ text: 'no' }),
+      body: JSON.stringify({ text: 'no', engine: 'server' }),
     });
     const body = (await declined.json()) as { items: { body: string }[] };
     expect(body.items.at(-1)?.body).toBe("Okay, I won't do that.");

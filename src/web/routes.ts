@@ -2,7 +2,7 @@ import type { Context, Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
 import { randomUUID } from 'node:crypto';
-import { handleInbound } from '../agent/handle.js';
+import { deliverToUser, handleInbound } from '../agent/handle.js';
 import { pendingIsFresh } from '../agent/approval.js';
 import { isRecord } from '../json.js';
 import { WEB_USER } from '../phone.js';
@@ -10,6 +10,8 @@ import type { Runtime } from '../runtime.js';
 import type { InboundMessage } from '../whatsapp/types.js';
 import { LoginLimiter, PasswordGate, SESSION_COOKIE, SESSION_TTL_MS } from './auth.js';
 import { isWebChannel } from './channel.js';
+import { DEVICE_MODELS, WEBGPU_FALLBACK, defaultEngine } from './device.js';
+import { handleDeviceReply, handleDeviceText } from './deviceTurn.js';
 import { renderChatPage, renderLoginPage } from './page.js';
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -96,6 +98,10 @@ function readImage(value: unknown): ImagePayload | { error: string } | null {
   return { mimeType, base64: data };
 }
 
+function engineFor(runtime: Runtime): 'device' | 'server' {
+  return runtime.config.llmApiKey && runtime.llm.configured ? 'server' : 'device';
+}
+
 export function registerWebRoutes(app: Hono, runtime: Runtime): void {
   const gate = new PasswordGate(runtime.config.appPassword);
   const limiter = new LoginLimiter();
@@ -169,9 +175,33 @@ export function registerWebRoutes(app: Hono, runtime: Runtime): void {
     return c.redirect('/', 303);
   });
 
+  app.get('/api/config', (c) => {
+    if (!signedIn(c, runtime)) return c.json({ error: 'Sign in again.' }, 401);
+    const serverAvailable = Boolean(runtime.config.llmApiKey) && runtime.llm.configured;
+    return c.json({
+      defaultEngine: defaultEngine(serverAvailable),
+      serverAvailable,
+      models: DEVICE_MODELS,
+      webgpuMessage: WEBGPU_FALLBACK,
+      assistantName: runtime.config.assistantName,
+      ownerName: runtime.config.ownerName,
+      timezone: runtime.config.timezone,
+    });
+  });
+
   app.get('/api/transcript', (c) => {
     if (!signedIn(c, runtime)) return c.json({ error: 'Sign in again.' }, 401);
     return c.json(chatState(runtime));
+  });
+
+  app.post('/api/device-reply', async (c) => {
+    if (!originAllowed(c)) return c.text('Forbidden', 403);
+    if (!signedIn(c, runtime)) return c.json({ error: 'Sign in again.' }, 401);
+    const body: unknown = await c.req.json().catch(() => null);
+    const text = isRecord(body) && typeof body.text === 'string' ? body.text : '';
+    if (!text.trim()) return c.json({ error: 'The model reply was empty.' }, 400);
+    await handleDeviceReply(runtime, text);
+    return c.json({ ...chatState(runtime), needsModel: false });
   });
 
   app.post('/api/messages', async (c) => {
@@ -186,6 +216,7 @@ export function registerWebRoutes(app: Hono, runtime: Runtime): void {
     const wantsJson = (c.req.header('content-type') ?? '').includes('application/json');
     let text = '';
     let image: ImagePayload | null = null;
+    let engine = engineFor(runtime);
     if (wantsJson) {
       const body: unknown = await c.req.json().catch(() => null);
       if (!isRecord(body)) return c.json({ error: 'Bad request' }, 400);
@@ -193,11 +224,37 @@ export function registerWebRoutes(app: Hono, runtime: Runtime): void {
       const parsed = readImage(body.image);
       if (parsed && 'error' in parsed) return c.json({ error: parsed.error }, 400);
       image = parsed;
+      if (body.engine === 'device' || body.engine === 'server') engine = body.engine;
     } else {
       const form = await c.req.parseBody();
       text = typeof form.text === 'string' ? form.text.trim() : '';
     }
     if (!text && !image) return c.json({ error: 'Write a message or attach a photo.' }, 400);
+    if (engine === 'server' && !runtime.llm.configured) engine = 'device';
+
+    if (engine === 'device') {
+      if (image) {
+        const caption = text ? `[Photo] ${text}` : '[Photo]';
+        runtime.store.addMessage({ phone: WEB_USER, role: 'user', content: caption, createdAt: runtime.now() });
+        await deliverToUser(
+          runtime,
+          WEB_USER,
+          "I saved the photo in the chat, but the on-device model can't see pictures. Set LLM_API_KEY and switch to the hosted model if you want that.",
+        );
+        const state = { ...chatState(runtime), needsModel: false };
+        return wantsJson ? c.json(state) : c.redirect('/#end', 303);
+      }
+      const result = await handleDeviceText(runtime, text);
+      if (!wantsJson && result.needsModel) {
+        await deliverToUser(
+          runtime,
+          WEB_USER,
+          'That message is saved. Keep this page open so the on-device model can answer, or use /note and /remind.',
+        );
+      }
+      const state = { ...chatState(runtime), needsModel: result.needsModel, context: result.context ?? null };
+      return wantsJson ? c.json(state) : c.redirect('/#end', 303);
+    }
 
     const message: InboundMessage = {
       id: `web-${randomUUID()}`,

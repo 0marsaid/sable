@@ -192,6 +192,8 @@ export async function resolveApproval(input: {
   tools: Tool[];
   now: Date;
   fetchImpl: typeof fetch;
+  /** Device mode already has a model in the browser, so skip the hosted follow-up. */
+  continueWithModel?: boolean;
 }): Promise<string> {
   const pending = input.store.getPending(input.phone);
   if (!pending) return 'Nothing is waiting for approval.';
@@ -215,11 +217,11 @@ export async function resolveApproval(input: {
     return text;
   }
 
+  const outputs: string[] = [];
   for (const call of pending.calls) {
     const tool = byName.get(call.name);
-    const output = tool
-      ? await runTool(tool, call, ctx)
-      : `Unknown tool: ${call.name}`;
+    const output = tool ? await runTool(tool, call, ctx) : `Unknown tool: ${call.name}`;
+    outputs.push(output);
     input.store.addMessage({
       phone: input.phone,
       role: 'tool',
@@ -230,6 +232,11 @@ export async function resolveApproval(input: {
     });
   }
   input.store.clearPending(input.phone);
+  if (input.continueWithModel === false) {
+    const text = outputs.join('\n\n') || 'Done.';
+    input.store.addMessage({ phone: input.phone, role: 'assistant', content: text, createdAt: input.now });
+    return text;
+  }
   const followUp = await runAgent(input);
   return followUp.text;
 }

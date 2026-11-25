@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '../store.js';
+import { WEBGPU_FALLBACK } from './device.js';
 
 function escapeHtml(value: string): string {
   return value
@@ -186,6 +187,22 @@ const STYLES = `
     body { background: #efe6da; }
     .shell { max-width: none; }
   }
+  .setup, .settings, .webgpu {
+    position: absolute; inset: 0; background: rgba(215, 206, 194, 0.72);
+    display: grid; place-items: center; padding: 20px; z-index: 2;
+  }
+  .shell { position: relative; }
+  .setup-card {
+    width: min(100%, 420px); background: #f7f1e8; border-radius: 28px; padding: 28px 24px;
+    box-shadow: 0 20px 50px rgba(48, 36, 22, 0.16);
+  }
+  .setup-card h2 { font-family: Georgia, serif; font-weight: 500; font-size: 28px; margin: 8px 0; }
+  progress { width: 100%; height: 10px; border: 0; border-radius: 999px; overflow: hidden; }
+  progress::-webkit-progress-bar { background: #e6dfd4; }
+  progress::-webkit-progress-value { background: #1f6b4a; }
+  fieldset { border: 0; padding: 0; margin: 0 0 14px; }
+  fieldset label { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+  select { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid #ddd4c8; background: #fff; font: inherit; }
   [hidden] { display: none !important; }
 `;
 
@@ -262,7 +279,7 @@ export function renderChatPage(options: {
     ? options.items
         .map((item) => bubbleHtml(item, options.assistantName, options.ownerName, options.timezone))
         .join('')
-    : '<p class="empty" id="empty">Ask for a reminder, a note, or something to look up.</p>';
+    : '<p class="empty" id="empty">Say hello, or try /note and /remind. /help lists commands.</p>';
   const approval = options.pending
     ? `<form class="approval" method="post" action="/api/messages" data-approval>
         <p>I need a yes before I do this.</p>
@@ -277,12 +294,47 @@ export function renderChatPage(options: {
     options.assistantName,
     `<body data-assistant="${escapeHtml(options.assistantName)}" data-owner="${escapeHtml(options.ownerName)}" data-tz="${escapeHtml(options.timezone)}">
   <div class="shell">
+    <div id="setup" class="setup" hidden>
+      <div class="setup-card">
+        <p class="mark">Sable</p>
+        <h2>Downloading the on-device model</h2>
+        <p>This happens once. The file stays in this browser, so later visits work offline.</p>
+        <p id="setup-label"></p>
+        <progress id="setup-bar" max="1" value="0"></progress>
+        <p id="setup-status">Starting…</p>
+      </div>
+    </div>
+    <div id="webgpu" class="webgpu" hidden>
+      <div class="setup-card">
+        <p class="mark">Sable</p>
+        <h2>No on-device model here</h2>
+        <p id="webgpu-copy">${escapeHtml(WEBGPU_FALLBACK)}</p>
+        <button class="primary" id="use-server" type="button" hidden>Use the hosted model</button>
+      </div>
+    </div>
+    <div id="settings" class="settings" hidden>
+      <div class="setup-card">
+        <h2>Settings</h2>
+        <fieldset>
+          <legend>Where answers come from</legend>
+          <label><input type="radio" name="engine" value="device"> On this device</label>
+          <label><input type="radio" name="engine" value="server"> Hosted model</label>
+        </fieldset>
+        <p id="server-hint" class="lede"></p>
+        <label for="model">On-device model</label>
+        <select id="model"></select>
+        <button class="primary" id="settings-close" type="button">Done</button>
+      </div>
+    </div>
     <header class="app-bar">
       <div class="avatar" aria-hidden="true">${escapeHtml(options.assistantName.slice(0, 1))}</div>
       <div class="who-block">
         <strong>${escapeHtml(options.assistantName)}</strong>
         <span>Private</span>
       </div>
+      <button class="icon-btn" id="settings-open" type="button" title="Settings" aria-label="Settings">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/></svg>
+      </button>
       <button class="icon-btn" id="notify" type="button" title="Allow reminder notifications" aria-label="Allow reminder notifications">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 7 3 7 3 7H3s3 0 3-7"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
       </button>
@@ -324,7 +376,7 @@ export function renderChatPage(options: {
 }
 
 const CLIENT = `
-(() => {
+(async () => {
   const thread = document.getElementById('thread');
   const typing = document.getElementById('typing');
   const composer = document.getElementById('composer');
@@ -338,6 +390,11 @@ const CLIENT = `
   const tz = document.body.dataset.tz || 'UTC';
   let file = null;
   let sending = false;
+  let appConfig = null;
+  let engineName = 'device';
+  let modelId = '';
+  let mlc = null;
+  let modelReady = false;
 
   function clock(iso) {
     const date = new Date(iso);
@@ -381,7 +438,7 @@ const CLIENT = `
       const empty = document.createElement('p');
       empty.className = 'empty';
       empty.id = 'empty';
-      empty.textContent = 'Ask for a reminder, a note, or something to look up.';
+      empty.textContent = 'Say hello, or try /note and /remind. /help lists commands.';
       thread.insertBefore(empty, anchor);
     } else {
       for (const item of data.items) thread.insertBefore(bubble(item), anchor);
@@ -447,8 +504,15 @@ const CLIENT = `
     sending = true;
     showError('');
     typing.hidden = false;
-    const payload = { text: caption };
+    const payload = { text: caption, engine: engineName };
     if (!decision && file) payload.image = file;
+    const command = caption.startsWith('/');
+    if (!command && !decision && engineName === 'device' && !modelReady && !file) {
+      showError('The on-device model is still loading. /note and /remind work now.');
+      sending = false;
+      typing.hidden = true;
+      return;
+    }
     try {
       const res = await fetch('/api/messages', {
         method: 'POST',
@@ -466,12 +530,31 @@ const CLIENT = `
       photo.value = '';
       preview.hidden = true;
       render(data);
+      if (data.needsModel) await runDeviceModel(data);
     } catch {
       showError('Message not sent. Check your connection and try again.');
     } finally {
       sending = false;
       typing.hidden = true;
     }
+  }
+
+  async function runDeviceModel(data) {
+    if (!mlc) {
+      showError('The on-device model is not ready yet.');
+      return;
+    }
+    const messages = [{ role: 'system', content: data.context.system }].concat(data.context.messages);
+    const reply = await mlc.chat.completions.create({ messages: messages, temperature: 0.3, max_tokens: 300 });
+    const content = reply && reply.choices && reply.choices[0] && reply.choices[0].message
+      ? reply.choices[0].message.content
+      : '';
+    const saved = await fetch('/api/device-reply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: content || '…' }),
+    });
+    if (saved.ok) render(await saved.json());
   }
 
   composer.addEventListener('submit', onSubmit);
@@ -531,5 +614,117 @@ const CLIENT = `
     events.addEventListener('reminder', onPush);
   }
   setInterval(refresh, 15000);
+
+  function isPhone() {
+    return window.matchMedia('(max-width: 759px)').matches;
+  }
+
+  function formatSize(mb) {
+    if (mb >= 1000) return (mb / 1000).toFixed(1) + ' GB';
+    return mb + ' MB';
+  }
+
+  function preferredModel() {
+    const tier = isPhone() ? 'phone' : 'computer';
+    return appConfig.models.find((model) => model.tier === tier && model.preferred) || appConfig.models[0];
+  }
+
+  function showSetup(model) {
+    document.getElementById('webgpu').hidden = true;
+    document.getElementById('setup').hidden = false;
+    document.getElementById('setup-label').textContent = model.label + ' · about ' + formatSize(model.sizeMb);
+    document.getElementById('setup-bar').value = 0;
+    document.getElementById('setup-status').textContent = 'Starting the download…';
+  }
+
+  async function loadModel() {
+    const model = appConfig.models.find((item) => item.id === modelId) || preferredModel();
+    modelId = model.id;
+    localStorage.setItem('sable.model', modelId);
+    showSetup(model);
+    modelReady = false;
+    try {
+      const webllm = await import('https://esm.sh/@mlc-ai/web-llm@0.2.89');
+      if (mlc && mlc.unload) await mlc.unload();
+      mlc = await webllm.CreateMLCEngine(model.id, {
+        initProgressCallback: (report) => {
+          document.getElementById('setup-bar').value = report.progress || 0;
+          document.getElementById('setup-status').textContent = report.text || 'Downloading…';
+        },
+      });
+      modelReady = true;
+      document.getElementById('setup').hidden = true;
+    } catch (error) {
+      modelReady = false;
+      document.getElementById('setup-status').textContent = 'The model did not load. /note and /remind still work.';
+    }
+  }
+
+  function fillSettings() {
+    const select = document.getElementById('model');
+    select.replaceChildren();
+    for (const model of appConfig.models) {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.label + ' · ' + formatSize(model.sizeMb) + ' · ' + model.detail;
+      if (model.id === modelId) option.selected = true;
+      select.appendChild(option);
+    }
+    document.querySelectorAll('input[name="engine"]').forEach((input) => {
+      input.checked = input.value === engineName;
+      if (input.value === 'server') input.disabled = !appConfig.serverAvailable;
+    });
+    document.getElementById('server-hint').textContent = appConfig.serverAvailable
+      ? 'The hosted model uses the key on the server.'
+      : 'Set LLM_API_KEY on the server to unlock the hosted model.';
+  }
+
+  function applyEngine(next, persist) {
+    engineName = next;
+    if (persist) localStorage.setItem('sable.engine', next);
+    if (next === 'server') {
+      document.getElementById('setup').hidden = true;
+      document.getElementById('webgpu').hidden = true;
+      return;
+    }
+    if (!navigator.gpu) {
+      document.getElementById('setup').hidden = true;
+      document.getElementById('webgpu').hidden = false;
+      document.getElementById('webgpu-copy').textContent = appConfig.webgpuMessage;
+      document.getElementById('use-server').hidden = !appConfig.serverAvailable;
+      return;
+    }
+    loadModel();
+  }
+
+  document.getElementById('settings-open').addEventListener('click', () => {
+    fillSettings();
+    document.getElementById('settings').hidden = false;
+  });
+  document.getElementById('settings-close').addEventListener('click', () => {
+    const selected = document.querySelector('input[name="engine"]:checked');
+    const nextEngine = selected ? selected.value : engineName;
+    const nextModel = document.getElementById('model').value;
+    document.getElementById('settings').hidden = true;
+    const modelChanged = nextModel && nextModel !== modelId;
+    if (modelChanged) {
+      modelId = nextModel;
+      localStorage.setItem('sable.model', modelId);
+    }
+    if (nextEngine !== engineName || (nextEngine === 'device' && modelChanged)) applyEngine(nextEngine, true);
+  });
+  document.getElementById('use-server').addEventListener('click', () => applyEngine('server', true));
+
+  const configResponse = await fetch('/api/config');
+  if (configResponse.ok) {
+    appConfig = await configResponse.json();
+    const savedEngine = localStorage.getItem('sable.engine');
+    const savedModel = localStorage.getItem('sable.model');
+    modelId = savedModel || preferredModel().id;
+    let next = savedEngine === 'device' || savedEngine === 'server' ? savedEngine : appConfig.defaultEngine;
+    if (next === 'server' && !appConfig.serverAvailable) next = 'device';
+    if (next === 'device' && !navigator.gpu && appConfig.serverAvailable) next = 'server';
+    applyEngine(next, false);
+  }
 })();
 `;

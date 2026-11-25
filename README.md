@@ -8,7 +8,7 @@ You host it yourself. The language model is any OpenAI-compatible API. The websi
 
 ## Web chat quick start
 
-You need Node.js 22 or newer. The only accounts you need for a real assistant are a password you invent and an API key from an OpenAI-compatible provider. WhatsApp can wait.
+You need Node.js 22 or newer. The only thing you must set to deploy the website is a password. An API key is optional and turns on the hosted model.
 
 ```bash
 cp .env.example .env
@@ -17,23 +17,21 @@ cp .env.example .env
 Put this in `.env`:
 
 ```bash
-CHANNEL=web
 APP_PASSWORD=choose-a-long-password
-LLM_MODE=openai
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
 OWNER_NAME=Omar
 OWNER_TIMEZONE=America/Los_Angeles
 ```
 
-To try it with no model key, set `LLM_MODE=mock` instead of `openai` and leave `LLM_API_KEY` empty. The mock echoes your messages and does not call tools.
+`CHANNEL` defaults to `web` when WhatsApp is not configured. No model key is required. When `LLM_API_KEY` is empty, the chat runs an open-source model in the browser with WebLLM. The first visit downloads it once and the browser keeps it for offline use. A phone starts on Llama 3.2 1B (about 880 MB). A computer starts on Llama 3.2 3B (about 2.3 GB). Settings also offers Qwen 2.5 0.5B (about 945 MB). Chrome, Edge, or Safari on iOS 26 or newer is required, because the model needs WebGPU. If the browser has no WebGPU, Sable says so and still accepts `/note` and `/remind`. Set `LLM_API_KEY` and you can switch to the hosted model in Settings.
+
+`LLM_MODE=mock` is only for tests and the WhatsApp dry run. The website does not use it when the API key is empty.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:8787](http://localhost:8787), enter the password, and text Sable. The thread stays in SQLite, so a reload keeps the history. Photos attach from the paperclip. When Sable wants to do something hard to undo, Yes and No buttons appear above the composer. Typing yes or no does the same thing.
+Open [http://localhost:8787](http://localhost:8787), enter the password, and text Sable. The first visit shows a download screen with progress. The thread stays in SQLite, so a reload keeps the history. Photos attach from the paperclip; the on-device model cannot see them. When Sable wants to do something hard to undo, Yes and No buttons appear above the composer. Typing yes or no does the same thing. `/note`, `/todo`, `/remind in 2 hours | stretch`, and `/help` work even if the model download is still going, and reminders are sent by the server.
 
 Reminders show up in the thread when they are due. The page listens for them and also checks every few seconds, so an open tab catches them. The bell in the header turns on browser notifications for those reminders.
 
@@ -46,15 +44,13 @@ Use one instance and a persistent disk at `/data`. Sleeping free tiers will miss
 **Render.** **New → Blueprint** and select this repo, or create a web service from the Dockerfile. Set:
 
 ```bash
-CHANNEL=web
 APP_PASSWORD=choose-a-long-password
-LLM_MODE=openai
-LLM_API_KEY=sk-...
-LLM_MODEL=gpt-4o-mini
 DATABASE_PATH=/data/sable.db
 OWNER_NAME=Omar
 OWNER_TIMEZONE=America/Los_Angeles
 ```
+
+Add `LLM_API_KEY` only if you want the hosted model. The site works with the password alone.
 
 Attach a disk mounted at `/data`. The health check is `/health`. Open the Render URL and sign in.
 
