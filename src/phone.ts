@@ -1,3 +1,17 @@
+/** Stable id for the signed-in website user. Not a phone number. */
+export const WEB_USER = 'web';
+
+/** Website user stays `web`. Phone numbers collapse to digits. */
+export function memoryKey(input: string): string {
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === WEB_USER) return WEB_USER;
+  return normalizePhone(input);
+}
+
+export function isWebUser(input: string): boolean {
+  return memoryKey(input) === WEB_USER;
+}
+
 /** Digits only, no plus. `whatsapp:+1 (555) 123-4567` and `15551234567` match. */
 export function normalizePhone(input: string): string {
   let value = input.trim().toLowerCase();

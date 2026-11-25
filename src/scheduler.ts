@@ -1,5 +1,5 @@
 import { errorMessage } from './logger.js';
-import { isAllowed, maskPhone } from './phone.js';
+import { isAllowed, isWebUser, maskPhone } from './phone.js';
 import type { Runtime } from './runtime.js';
 import { deliverReminder } from './agent/handle.js';
 
@@ -8,7 +8,12 @@ export async function runDueReminders(runtime: Runtime, now = runtime.now()): Pr
   let sent = 0;
   for (const reminder of due) {
     if (!runtime.store.claimReminder(reminder.id, now.toISOString())) continue;
-    if (!isAllowed(reminder.phone, runtime.config.ownerPhones)) {
+    const webReminder = isWebUser(reminder.phone);
+    if (webReminder && runtime.config.channel !== 'web') {
+      runtime.store.failReminder(reminder.id, 'web chat is off');
+      continue;
+    }
+    if (!webReminder && !isAllowed(reminder.phone, runtime.config.ownerPhones)) {
       runtime.store.failReminder(reminder.id, 'number is no longer allowlisted');
       continue;
     }
@@ -23,7 +28,12 @@ export async function runDueReminders(runtime: Runtime, now = runtime.now()): Pr
     } catch (error) {
       const status = runtime.store.markReminderRetry(reminder.id, errorMessage(error));
       runtime.log.error(
-        { reminder: reminder.id, to: maskPhone(reminder.phone), status, err: errorMessage(error) },
+        {
+          reminder: reminder.id,
+          to: webReminder ? 'web' : maskPhone(reminder.phone),
+          status,
+          err: errorMessage(error),
+        },
         'reminder send failed',
       );
     }

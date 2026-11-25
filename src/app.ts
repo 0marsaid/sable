@@ -8,6 +8,7 @@ import type { Runtime } from './runtime.js';
 import { runDueReminders } from './scheduler.js';
 import { safeEqual, verifyMetaSignature, verifyTwilioSignature } from './security.js';
 import { renderStatusPage } from './statusPage.js';
+import { registerWebRoutes } from './web/routes.js';
 import { parseMetaWebhook } from './whatsapp/meta.js';
 import { parseTwilioWebhook, twilioParams } from './whatsapp/twilio.js';
 import type { InboundMessage } from './whatsapp/types.js';
@@ -49,11 +50,13 @@ export function createApp(runtime: Runtime): SableApp {
     c.json({
       ok: true,
       assistant: runtime.config.assistantName,
+      channel: runtime.config.channel,
       whatsapp: {
-        provider: runtime.config.whatsappProvider,
+        provider: runtime.config.channel === 'web' ? 'off' : runtime.config.whatsappProvider,
         configured:
-          runtime.config.whatsappProvider === 'console' ||
-          (runtime.config.whatsappProvider === 'meta' ? metaReady(runtime.config) : twilioReady(runtime.config)),
+          runtime.config.channel !== 'web' &&
+          (runtime.config.whatsappProvider === 'console' ||
+            (runtime.config.whatsappProvider === 'meta' ? metaReady(runtime.config) : twilioReady(runtime.config))),
       },
       llm: {
         mode: runtime.config.llmMode,
@@ -68,9 +71,11 @@ export function createApp(runtime: Runtime): SableApp {
     }),
   );
 
-  app.get('/', (c) =>
-    c.html(renderStatusPage(runtime, { ignored: c.req.query('ignored') === '1' })),
-  );
+  if (runtime.config.channel === 'web') {
+    registerWebRoutes(app, runtime);
+  } else {
+    app.get('/', (c) => c.html(renderStatusPage(runtime, { ignored: c.req.query('ignored') === '1' })));
+  }
 
   app.get('/webhook', (c) => {
     const mode = c.req.query('hub.mode') ?? c.req.query('hub_mode') ?? '';
@@ -157,7 +162,7 @@ export function createApp(runtime: Runtime): SableApp {
       const replies = (runtime.channel.outbox ?? []).slice(before).map((entry) => entry.text);
       if (contentType.includes('application/json')) return c.json({ ok: true, replies });
       const ignored = replies.length === 0 ? '?ignored=1' : '';
-      return c.redirect(`/${ignored}`, 303);
+      return c.redirect(`/${ignored}#chat`, 303);
     });
   }
 

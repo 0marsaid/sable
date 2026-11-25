@@ -1,6 +1,7 @@
 import { parseAllowlist } from './phone.js';
 import { isValidTimeZone } from './time.js';
 
+export type ChannelName = 'web' | 'whatsapp';
 export type WhatsAppProviderName = 'meta' | 'twilio' | 'console';
 export type SearchProviderName = 'tavily' | 'brave' | 'none';
 export type LlmMode = 'openai' | 'mock';
@@ -41,10 +42,23 @@ export type AppConfig = {
   searchProvider: SearchProviderName;
   tavilyApiKey: string;
   braveApiKey: string;
+
+  channel: ChannelName;
+  appPassword: string;
 };
 
 function str(env: NodeJS.ProcessEnv, key: string): string {
   return (env[key] ?? '').trim();
+}
+
+function chooseChannel(env: NodeJS.ProcessEnv): ChannelName {
+  const raw = str(env, 'CHANNEL').toLowerCase();
+  if (raw === 'web' || raw === 'whatsapp') return raw;
+  const explicit = str(env, 'WHATSAPP_PROVIDER').toLowerCase();
+  if (explicit === 'meta' || explicit === 'twilio' || explicit === 'console') return 'whatsapp';
+  if (str(env, 'META_ACCESS_TOKEN') && str(env, 'META_PHONE_NUMBER_ID')) return 'whatsapp';
+  if (str(env, 'TWILIO_ACCOUNT_SID') && str(env, 'TWILIO_AUTH_TOKEN')) return 'whatsapp';
+  return 'web';
 }
 
 function chooseProvider(env: NodeJS.ProcessEnv): WhatsAppProviderName {
@@ -110,6 +124,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     searchProvider: chooseSearch(env),
     tavilyApiKey: str(env, 'TAVILY_API_KEY'),
     braveApiKey: str(env, 'BRAVE_API_KEY'),
+
+    channel: chooseChannel(env),
+    appPassword: str(env, 'APP_PASSWORD'),
   };
 }
 
@@ -122,6 +139,7 @@ export function secretValues(config: AppConfig): string[] {
     config.twilioAuthToken,
     config.tavilyApiKey,
     config.braveApiKey,
+    config.appPassword,
   ].filter((value) => value.length >= 6);
 }
 

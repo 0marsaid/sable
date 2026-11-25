@@ -1,8 +1,9 @@
+import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { ToolCall } from './llm/types.js';
-import { normalizePhone } from './phone.js';
+import { memoryKey } from './phone.js';
 
 export type StoredMessage = {
   id: number;
@@ -43,6 +44,7 @@ export type PendingApproval = {
   createdAt: string;
 };
 export type TranscriptItem = {
+  id: string;
   role: 'user' | 'assistant';
   body: string;
   at: string;
@@ -155,6 +157,12 @@ export class Store {
         body TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -179,7 +187,7 @@ export class Store {
     name?: string | null;
     createdAt?: Date;
   }): number {
-    const phone = normalizePhone(input.phone);
+    const phone = memoryKey(input.phone);
     const result = this.db
       .prepare(
         `INSERT INTO messages (phone, role, content, tool_calls, tool_call_id, name, created_at)
@@ -200,7 +208,7 @@ export class Store {
   recentMessages(phone: string, limit: number): StoredMessage[] {
     const rows = this.db
       .prepare('SELECT * FROM messages WHERE phone = ? ORDER BY id DESC LIMIT ?')
-      .all(normalizePhone(phone), limit) as Row[];
+      .all(memoryKey(phone), limit) as Row[];
     return rows.reverse().map(mapMessage);
   }
 
@@ -209,7 +217,7 @@ export class Store {
    * next model request is valid. Calls that are waiting on approval are left open.
    */
   repairDanglingToolCalls(phone: string): void {
-    const normalized = normalizePhone(phone);
+    const normalized = memoryKey(phone);
     const pending = this.getPending(normalized);
     const pendingIds = new Set(pending?.calls.map((call) => call.id) ?? []);
     const rows = this.recentMessages(normalized, 80);
@@ -233,7 +241,7 @@ export class Store {
   }
 
   addFact(phone: string, body: string): { id: number; created: boolean } {
-    const normalized = normalizePhone(phone);
+    const normalized = memoryKey(phone);
     const text = body.trim();
     const existing = this.db
       .prepare('SELECT id FROM facts WHERE phone = ? AND body = ?')
@@ -248,32 +256,32 @@ export class Store {
   listFacts(phone: string, limit = 50): Fact[] {
     const rows = this.db
       .prepare('SELECT * FROM facts WHERE phone = ? ORDER BY id DESC LIMIT ?')
-      .all(normalizePhone(phone), limit) as Row[];
+      .all(memoryKey(phone), limit) as Row[];
     return rows.reverse().map(mapFact);
   }
 
   getFact(phone: string, id: number): Fact | undefined {
     const row = this.db
       .prepare('SELECT * FROM facts WHERE phone = ? AND id = ?')
-      .get(normalizePhone(phone), id) as Row | undefined;
+      .get(memoryKey(phone), id) as Row | undefined;
     return row ? mapFact(row) : undefined;
   }
 
   deleteFact(phone: string, id: number): boolean {
-    const result = this.db.prepare('DELETE FROM facts WHERE phone = ? AND id = ?').run(normalizePhone(phone), id);
+    const result = this.db.prepare('DELETE FROM facts WHERE phone = ? AND id = ?').run(memoryKey(phone), id);
     return result.changes === 1;
   }
 
   addNote(phone: string, body: string, isTodo: boolean): number {
     const result = this.db
       .prepare('INSERT INTO notes (phone, body, is_todo, done, created_at) VALUES (?, ?, ?, 0, ?)')
-      .run(normalizePhone(phone), body.trim(), isTodo ? 1 : 0, new Date().toISOString());
+      .run(memoryKey(phone), body.trim(), isTodo ? 1 : 0, new Date().toISOString());
     return num(result.lastInsertRowid);
   }
 
   listNotes(phone: string, status: 'open' | 'done' | 'all' = 'open'): Note[] {
     const clauses = ['phone = ?'];
-    const params: Array<string | number> = [normalizePhone(phone)];
+    const params: Array<string | number> = [memoryKey(phone)];
     if (status === 'open') clauses.push('done = 0');
     if (status === 'done') clauses.push('done = 1');
     const rows = this.db
@@ -285,7 +293,7 @@ export class Store {
   getNote(phone: string, id: number): Note | undefined {
     const row = this.db
       .prepare('SELECT * FROM notes WHERE phone = ? AND id = ?')
-      .get(normalizePhone(phone), id) as Row | undefined;
+      .get(memoryKey(phone), id) as Row | undefined;
     return row ? mapNote(row) : undefined;
   }
 
@@ -294,12 +302,12 @@ export class Store {
       .prepare(
         `UPDATE notes SET done = 1, completed_at = ? WHERE phone = ? AND id = ? AND done = 0`,
       )
-      .run(new Date().toISOString(), normalizePhone(phone), id);
+      .run(new Date().toISOString(), memoryKey(phone), id);
     return result.changes === 1;
   }
 
   deleteNote(phone: string, id: number): boolean {
-    const result = this.db.prepare('DELETE FROM notes WHERE phone = ? AND id = ?').run(normalizePhone(phone), id);
+    const result = this.db.prepare('DELETE FROM notes WHERE phone = ? AND id = ?').run(memoryKey(phone), id);
     return result.changes === 1;
   }
 
@@ -309,7 +317,7 @@ export class Store {
         `INSERT INTO reminders (phone, message, due_at, status, attempts, created_at)
          VALUES (?, ?, ?, 'pending', 0, ?)`,
       )
-      .run(normalizePhone(phone), message.trim(), dueAt.toISOString(), new Date().toISOString());
+      .run(memoryKey(phone), message.trim(), dueAt.toISOString(), new Date().toISOString());
     return num(result.lastInsertRowid);
   }
 
@@ -317,14 +325,14 @@ export class Store {
     const sql = includeClosed
       ? 'SELECT * FROM reminders WHERE phone = ? ORDER BY due_at ASC'
       : `SELECT * FROM reminders WHERE phone = ? AND status IN ('pending', 'sending') ORDER BY due_at ASC`;
-    const rows = this.db.prepare(sql).all(normalizePhone(phone)) as Row[];
+    const rows = this.db.prepare(sql).all(memoryKey(phone)) as Row[];
     return rows.map(mapReminder);
   }
 
   getReminder(phone: string, id: number): Reminder | undefined {
     const row = this.db
       .prepare('SELECT * FROM reminders WHERE phone = ? AND id = ?')
-      .get(normalizePhone(phone), id) as Row | undefined;
+      .get(memoryKey(phone), id) as Row | undefined;
     return row ? mapReminder(row) : undefined;
   }
 
@@ -333,7 +341,7 @@ export class Store {
       .prepare(
         `UPDATE reminders SET status = 'cancelled' WHERE phone = ? AND id = ? AND status IN ('pending', 'sending')`,
       )
-      .run(normalizePhone(phone), id);
+      .run(memoryKey(phone), id);
     return result.changes === 1;
   }
 
@@ -390,7 +398,7 @@ export class Store {
   }
 
   setPending(phone: string, calls: ToolCall[], summaries: string[], now: Date): void {
-    const normalized = normalizePhone(phone);
+    const normalized = memoryKey(phone);
     this.db
       .prepare(
         `INSERT INTO pending_approvals (phone, calls_json, summaries_json, created_at)
@@ -406,7 +414,7 @@ export class Store {
   getPending(phone: string): PendingApproval | undefined {
     const row = this.db
       .prepare('SELECT * FROM pending_approvals WHERE phone = ?')
-      .get(normalizePhone(phone)) as Row | undefined;
+      .get(memoryKey(phone)) as Row | undefined;
     if (!row) return undefined;
     return {
       phone: String(row.phone),
@@ -417,34 +425,55 @@ export class Store {
   }
 
   clearPending(phone: string): void {
-    this.db.prepare('DELETE FROM pending_approvals WHERE phone = ?').run(normalizePhone(phone));
+    this.db.prepare('DELETE FROM pending_approvals WHERE phone = ?').run(memoryKey(phone));
   }
 
   logDelivery(phone: string, body: string, now = new Date()): void {
     this.db
       .prepare('INSERT INTO deliveries (phone, body, created_at) VALUES (?, ?, ?)')
-      .run(normalizePhone(phone), body, now.toISOString());
+      .run(memoryKey(phone), body, now.toISOString());
   }
 
   transcript(phone: string, limit = 40): TranscriptItem[] {
-    const normalized = normalizePhone(phone);
+    const normalized = memoryKey(phone);
     const rows = this.db
       .prepare(
-        `SELECT role, body, at FROM (
-           SELECT 'user' AS role, content AS body, created_at AS at, id AS seq
+        `SELECT role, body, at, seq, kind FROM (
+           SELECT 'user' AS role, content AS body, created_at AS at, id AS seq, 'm' AS kind
            FROM messages WHERE phone = ? AND role = 'user'
            UNION ALL
-           SELECT 'assistant', body, created_at, id
+           SELECT 'assistant', body, created_at, id, 'd'
            FROM deliveries WHERE phone = ?
          )
          ORDER BY at ASC, role DESC, seq ASC`,
       )
       .all(normalized, normalized) as Row[];
     return rows.slice(-limit).map((row) => ({
+      id: `${String(row.kind)}${num(row.seq)}`,
       role: row.role === 'user' ? 'user' : 'assistant',
       body: String(row.body ?? ''),
       at: String(row.at),
     }));
+  }
+
+  createSession(now: Date, ttlMs: number): string {
+    const id = randomBytes(32).toString('hex');
+    const expires = new Date(now.getTime() + ttlMs);
+    this.db
+      .prepare('INSERT INTO sessions (id, created_at, expires_at) VALUES (?, ?, ?)')
+      .run(id, now.toISOString(), expires.toISOString());
+    return id;
+  }
+
+  sessionValid(id: string, now: Date): boolean {
+    if (!/^[a-f0-9]{64}$/.test(id)) return false;
+    const row = this.db.prepare('SELECT expires_at FROM sessions WHERE id = ?').get(id) as Row | undefined;
+    if (!row) return false;
+    return String(row.expires_at) > now.toISOString();
+  }
+
+  deleteSession(id: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 }
 

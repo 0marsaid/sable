@@ -157,4 +157,17 @@ describe('message handling', () => {
     const body = (await response.json()) as { replies: string[] };
     expect(body.replies).toEqual(['Hello Omar']);
   });
+
+  it('returns the browser to the conversation after a form submit', async () => {
+    const harness = createTestApp();
+    const response = await harness.app.request('/debug/inbound', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'from=%2B15551234567&text=Hello',
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/#chat');
+    const page = await harness.app.request('/');
+    expect(await page.text()).toContain('id="chat"');
+  });
 });

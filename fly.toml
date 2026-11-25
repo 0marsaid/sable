@@ -9,7 +9,7 @@ primary_region = "iad"
 [env]
   PORT = "8787"
   DATABASE_PATH = "/data/sable.db"
-  WHATSAPP_PROVIDER = "meta"
+  CHANNEL = "web"
 
 [http_service]
   internal_port = 8787

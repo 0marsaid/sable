@@ -85,7 +85,7 @@ export function renderStatusPage(runtime: Runtime, options: { ignored?: boolean 
     : '';
 
   const consoleBlock = consoleMode
-    ? `<section class="card chat">
+    ? `<section class="card chat" id="chat">
         <h2>Try it here</h2>
         <p class="lede">This box uses the same path as a WhatsApp message. It is only available in console mode. Do not put console mode on the public internet.</p>
         ${ignoredBanner}
@@ -136,6 +136,7 @@ export function renderStatusPage(runtime: Runtime, options: { ignored?: boolean 
     .card { background: #fbf8f3; border-radius: 18px; padding: 1.25rem 1.25rem 1.4rem; margin: 0 0 1rem; box-shadow: 0 1px 0 rgba(28, 25, 21, 0.04); }
     .row { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid #e6dfd4; }
     .row:first-child { border-top: 0; padding-top: 0; }
+    .row:last-child { padding-bottom: 0; }
     dt { color: #6b645c; }
     dd { margin: 0; }
     .ok { color: #1f6b4a; }

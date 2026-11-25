@@ -1,5 +1,5 @@
 import { errorMessage } from '../logger.js';
-import { isAllowed, normalizePhone } from '../phone.js';
+import { isAllowed, normalizePhone, WEB_USER } from '../phone.js';
 import type { Runtime } from '../runtime.js';
 import { splitWhatsAppText } from '../split.js';
 import { downloadInboundMedia } from '../whatsapp/media.js';
@@ -13,8 +13,8 @@ const NOT_CONFIGURED =
 async function deliver(runtime: Runtime, to: string, text: string, reminder = false): Promise<void> {
   const parts = splitWhatsAppText(text);
   for (const part of parts) {
-    await runtime.channel.sendText(to, part, reminder ? { reminder: true } : undefined);
     runtime.store.logDelivery(to, part, runtime.now());
+    await runtime.channel.sendText(to, part, reminder ? { reminder: true } : undefined);
   }
 }
 
@@ -22,8 +22,8 @@ export async function handleInbound(message: InboundMessage, runtime: Runtime): 
   if (!message.id || !runtime.store.tryProcess(message.id, runtime.now())) return;
   if (message.kind === 'ignore') return;
 
-  const phone = normalizePhone(message.from);
-  if (!isAllowed(phone, runtime.config.ownerPhones)) {
+  const phone = message.source === 'web' ? WEB_USER : normalizePhone(message.from);
+  if (message.source !== 'web' && !isAllowed(phone, runtime.config.ownerPhones)) {
     runtime.log.info({ phone: `***${phone.slice(-4)}` }, 'ignored message from a number that is not allowlisted');
     return;
   }
@@ -104,7 +104,7 @@ async function handleOwner(message: InboundMessage, phone: string, runtime: Runt
   let userText = text;
 
   if (message.kind === 'image') {
-    image = await downloadInboundMedia(message, runtime.config, runtime.fetchImpl);
+    image = message.inlineImage ?? (await downloadInboundMedia(message, runtime.config, runtime.fetchImpl));
     if (!image) {
       await deliver(
         runtime,

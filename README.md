@@ -1,18 +1,75 @@
 # Sable
 
-Sable is a personal assistant you text on WhatsApp. It is built for one owner. It looks things up, reads a link, remembers facts about you, keeps notes and to-dos, and texts you back when a reminder is due.
+Sable is a personal assistant for one owner. You can text it on the website, or on WhatsApp. It looks things up, reads a link, remembers facts about you, keeps notes and to-dos, and messages you when a reminder is due.
 
 Anything hard to undo waits for a reply of **YES**. Search, notes, and saving a fact happen immediately. Reminders, deleting a note, forgetting a fact, and cancelling a reminder do not run until you confirm.
 
-You host it yourself. The language model is any OpenAI-compatible API. WhatsApp is the official Meta Cloud API, with Twilio’s sandbox as an optional second adapter.
+You host it yourself. The language model is any OpenAI-compatible API. The website is the simplest way to start. WhatsApp, through the official Meta Cloud API or Twilio’s sandbox, is optional.
+
+## Web chat quick start
+
+You need Node.js 22 or newer. The only accounts you need for a real assistant are a password you invent and an API key from an OpenAI-compatible provider. WhatsApp can wait.
+
+```bash
+cp .env.example .env
+```
+
+Put this in `.env`:
+
+```bash
+CHANNEL=web
+APP_PASSWORD=choose-a-long-password
+LLM_MODE=openai
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+OWNER_NAME=Omar
+OWNER_TIMEZONE=America/Los_Angeles
+```
+
+To try it with no model key, set `LLM_MODE=mock` instead of `openai` and leave `LLM_API_KEY` empty. The mock echoes your messages and does not call tools.
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:8787](http://localhost:8787), enter the password, and text Sable. The thread stays in SQLite, so a reload keeps the history. Photos attach from the paperclip. When Sable wants to do something hard to undo, Yes and No buttons appear above the composer. Typing yes or no does the same thing.
+
+Reminders show up in the thread when they are due. The page listens for them and also checks every few seconds, so an open tab catches them. The bell in the header turns on browser notifications for those reminders.
+
+There is no sign-up. A wrong password is hashed and compared without storing the attempt. The session cookie is httpOnly. After five failures from the same address, login pauses for ten minutes. On Render or Railway, HTTPS makes the cookie `Secure` via `X-Forwarded-Proto`.
+
+### Deploy the website
+
+Use one instance and a persistent disk at `/data`. Sleeping free tiers will miss reminders.
+
+**Render.** **New → Blueprint** and select this repo, or create a web service from the Dockerfile. Set:
+
+```bash
+CHANNEL=web
+APP_PASSWORD=choose-a-long-password
+LLM_MODE=openai
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+DATABASE_PATH=/data/sable.db
+OWNER_NAME=Omar
+OWNER_TIMEZONE=America/Los_Angeles
+```
+
+Attach a disk mounted at `/data`. The health check is `/health`. Open the Render URL and sign in.
+
+**Railway.** **New project → Deploy from GitHub.** Add a volume mounted at `/data`. Set the same variables, including `DATABASE_PATH=/data/sable.db`. Generate a domain and open it.
+
+WhatsApp keys are not required for either host.
 
 ## What you need to create
 
 | Account | Required? | What it gives you |
 | --- | --- | --- |
-| [Meta for Developers](https://developers.facebook.com/) app with WhatsApp | Yes, for real WhatsApp. Skip it for a local dry run. | Verify token (you invent this), access token, phone number ID, app secret |
-| An OpenAI-compatible model provider (OpenAI, OpenRouter, Groq, …) | Yes, for real answers | `LLM_API_KEY`, and a base URL if it is not OpenAI |
-| Your own WhatsApp number | Yes | The only number Sable will answer. This is `OWNER_PHONE_NUMBERS` |
+| A password you invent (`APP_PASSWORD`) | Yes, for the website | The only way into the chat. There is no account to create. |
+| An OpenAI-compatible model provider (OpenAI, OpenRouter, Groq, …) | Yes, for real answers. Skip it when `LLM_MODE=mock`. | `LLM_API_KEY`, and a base URL if it is not OpenAI |
+| [Meta for Developers](https://developers.facebook.com/) app with WhatsApp | Only if you want WhatsApp | Verify token (you invent this), access token, phone number ID, app secret |
+| Your own WhatsApp number | Only for WhatsApp | The only number Sable will answer. This is `OWNER_PHONE_NUMBERS` |
 | [Tavily](https://tavily.com) or [Brave Search](https://brave.com/search/api/) | No | Web search. Notes and reminders work without it |
 | [ngrok](https://ngrok.com) or similar | Only while testing on your laptop | A public https URL for Meta’s webhook |
 | [Render](https://render.com), [Railway](https://railway.com), or [Fly.io](https://fly.io) | When you want it online all the time | A host that stays awake so reminders can be sent |
@@ -344,6 +401,8 @@ Calendar, email, bookings, and phone calls belong in this list the same way. The
 
 | Variable | Purpose |
 | --- | --- |
+| `CHANNEL` | `web` (default when WhatsApp is not configured) or `whatsapp`. |
+| `APP_PASSWORD` | Password for the website. Required for `CHANNEL=web`. |
 | `PORT` | Listen port. Default `8787`. Hosts often set this for you. |
 | `HOST` | Default `0.0.0.0`. |
 | `ASSISTANT_NAME` | Default `Sable`. |

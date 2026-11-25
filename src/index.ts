@@ -30,13 +30,16 @@ const runtime: Runtime = {
 const recovered = store.recoverStuckReminders(new Date(Date.now() - 2 * 60 * 1000).toISOString());
 if (recovered > 0) log.warn({ recovered }, 'reset reminders that were stuck sending');
 
-if (config.ownerPhones.length === 0) {
+if (config.channel === 'web') {
+  if (!config.appPassword) log.warn({}, 'APP_PASSWORD is empty, so the web chat will refuse every login');
+  else log.info({}, 'web chat enabled');
+} else if (config.ownerPhones.length === 0) {
   log.warn({}, 'OWNER_PHONE_NUMBERS is empty, so every inbound message will be ignored');
 } else {
   log.info({ owners: config.ownerPhones.map((phone) => maskPhone(formatPhone(phone))) }, 'allowlist loaded');
 }
 if (config.timezoneWasInvalid) log.warn({}, 'OWNER_TIMEZONE was invalid, using UTC');
-if (config.whatsappProvider === 'console') {
+if (config.channel !== 'web' && config.whatsappProvider === 'console') {
   log.warn({}, 'console WhatsApp adapter is for a local dry run — do not expose it on the public internet');
 }
 if (config.whatsappProvider === 'meta' && !metaReady(config)) {
@@ -67,7 +70,7 @@ const server = serve(
   { fetch: app.fetch, port: config.port, hostname: config.host },
   (info) => {
     log.info(
-      { port: info.port, host: config.host, provider: config.whatsappProvider },
+      { port: info.port, host: config.host, channel: config.channel, provider: config.whatsappProvider },
       `${config.assistantName} listening`,
     );
   },

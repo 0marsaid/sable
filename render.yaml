@@ -13,8 +13,8 @@ services:
     envVars:
       - key: DATABASE_PATH
         value: /data/sable.db
-      - key: WHATSAPP_PROVIDER
-        value: meta
+      - key: CHANNEL
+        value: web
       - key: ASSISTANT_NAME
         value: Sable
       - key: OWNER_NAME
@@ -29,6 +29,8 @@ services:
         value: gpt-4o-mini
       - key: META_API_VERSION
         value: v21.0
+      - key: APP_PASSWORD
+        sync: false
       - key: OWNER_PHONE_NUMBERS
         sync: false
       - key: LLM_API_KEY
